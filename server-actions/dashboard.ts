@@ -178,10 +178,13 @@ export async function uploadProjectsFromExcel(formData: FormData) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
-  const sheet = workbook.Sheets["Active projects"];
+  const sheet =
+    workbook.Sheets["Active projects"] ??
+    workbook.Sheets["Active Projects"] ??
+    workbook.Sheets[workbook.SheetNames[0]];
 
   if (!sheet) {
-    throw new Error("Sheet 'Active projects' was not found.");
+    throw new Error("No worksheet found in uploaded Excel file.");
   }
 
   const rows = XLSX.utils.sheet_to_json<any[]>(sheet, {
@@ -189,6 +192,81 @@ export async function uploadProjectsFromExcel(formData: FormData) {
     defval: "",
     raw: true,
   });
+
+  // Header is on Excel row 9, so data starts on row 10.
+  const dataRows = rows.slice(9);
+
+  const importedProjects = dataRows
+    .map((row, index) => {
+      const activeStatus = String(row[1] ?? "").trim().toLowerCase(); // Column B
+
+      if (activeStatus !== "active") return null;
+
+      const ipm = String(row[2] ?? "").trim(); // Column C
+
+      const projectName =
+        String(row[11] ?? "").trim() || // Column L
+        String(row[12] ?? "").trim();   // Column M fallback
+
+      const progress = toProgress(row[36]); // Column AK
+
+      if (!ipm || !projectName) return null;
+
+      const id = slugify(`${ipm}-${projectName}`);
+
+      if (!id) return null;
+
+      return {
+        id,
+        name: projectName,
+        ipm,
+        progress,
+        status: "Active" as const,
+        sortOrder: index + 1,
+      };
+    })
+    .filter(Boolean) as {
+      id: string;
+      name: string;
+      ipm: string;
+      progress: number;
+      status: "Active";
+      sortOrder: number;
+    }[];
+
+  // Remove duplicate projects caused by duplicate Excel rows.
+  const uniqueProjects = Array.from(
+    new Map(importedProjects.map((project) => [project.id, project])).values()
+  );
+
+  const ids = uniqueProjects.map((project) => project.id);
+
+  await prisma.project.deleteMany({
+    where: {
+      id: {
+        notIn: ids,
+      },
+    },
+  });
+
+  for (const project of uniqueProjects) {
+    await prisma.project.upsert({
+      where: { id: project.id },
+      update: project,
+      create: project,
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/admin");
+
+  return await prisma.project.findMany({
+    orderBy: [
+      { sortOrder: "asc" },
+      { progress: "asc" },
+    ],
+  });
+}
 
 const dataRows = rows.slice(9); // Excel row 10 onwards
 
