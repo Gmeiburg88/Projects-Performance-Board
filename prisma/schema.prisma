@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model MonthlyTarget {
+  id            String @id @default(cuid())
+  monthOrder    Int    @unique
+  monthLabel    String
+  minimumTarget Float  @default(0)
+  target        Float  @default(0)
+  stretchTarget Float  @default(0)
+  actual        Float  @default(0)
+}
+
+model Team {
+  id             String  @id
+  name           String
+  targetValue    Float   @default(0)
+  actualValue    Float   @default(0)
+  achievementPct Float   @default(0)
+  variancePct    Float   @default(0)
+  sortOrder      Int?
+  isCompanyTotal Boolean @default(false)
+}
+
+model Project {
+  id        String @id
+  name      String
+  ipm       String @default("")
+  progress  Float  @default(0)
+  status    String @default("Active")
+  sortOrder Int?
+}
